@@ -1,25 +1,36 @@
 # Keyboard Overlay
 
-Расширение для Chrome показывает нажатые клавиши и историю сочетаний поверх страницы во время демонстраций и записи экрана. Положение, размер и время показа можно сохранить в пресет.
+## Установка
 
-## Установка в Chrome
+1. [Скачайте ZIP][zip] и распакуйте его в постоянную папку.
+2. Откройте `chrome://extensions`, `edge://extensions` или `brave://extensions` и включите **Режим разработчика**.
+3. Нажмите **Загрузить распакованное расширение** и выберите папку с `manifest.json`.
 
-1. На [странице релизов](https://github.com/DmitriyMih/keyboard-overlay/releases/latest) скачайте файл `keyboard-overlay-1.8.0.zip` из раздела **Assets**.
-2. Распакуйте ZIP в папку, где расширение будет храниться постоянно.
-3. Откройте `chrome://extensions` и включите **Режим разработчика**.
-4. Нажмите **Загрузить распакованное расширение** и выберите папку, в которой лежит `manifest.json`.
-5. Откройте обычную веб-страницу и нажмите значок **Keyboard Overlay** в меню расширений. Откроются настройки и предпросмотр. Закройте панель и нажмите клавишу, чтобы увидеть её на странице.
+## Как пользоваться
 
-Чтобы обновить расширение, распакуйте новый релиз поверх файлов в той же папке, нажмите кнопку обновления на карточке расширения в `chrome://extensions` и обновите вкладку сайта.
+На обычной веб-странице нажмите клавишу или сочетание — оверлей появится автоматически.
 
-## Install in Chrome
+- **Размещение.** Нажмите **Keyboard Overlay** в меню расширений. Перетащите большие клавиши в нужное место. Затем перетащите ближайшую к ним запись истории и выберите стрелкой направление истории. Закройте настройки, чтобы видеть реальные нажатия.
+- **История.** Во вкладке **История** задайте лимит записей. Под полем видно, сколько из них поместится на экране.
+- **Пресеты.** Нажмите **Сохранить как пресет**. Чтобы использовать его по умолчанию на новых сайтах, раскройте список и нажмите **☆** рядом с названием.
 
-Keyboard Overlay shows your keystrokes and shortcut history on the page during demos and screen recordings.
+<details>
+<summary>English</summary>
 
-1. Download `keyboard-overlay-1.8.0.zip` from **Assets** on the [releases page](https://github.com/DmitriyMih/keyboard-overlay/releases/latest).
-2. Extract the ZIP into a folder you intend to keep.
-3. Open `chrome://extensions` and enable **Developer mode**.
-4. Click **Load unpacked** and select the folder containing `manifest.json`.
-5. Open a regular web page and click **Keyboard Overlay** in the extensions menu. Choose **English** under **Общие → Язык интерфейса**. Close the settings panel and press a key to see it on the page.
+## Installation
 
-To update, extract the new release into the same folder, click the extension’s reload button in `chrome://extensions`, then refresh the web page.
+1. [Download the ZIP][zip] and extract it into a folder you intend to keep.
+2. Open `chrome://extensions`, `edge://extensions`, or `brave://extensions` and enable **Developer mode**.
+3. Click **Load unpacked** and select the folder containing `manifest.json`.
+
+## Using the overlay
+
+Press a key or shortcut on a regular web page to see it on screen. To switch to English, open **Keyboard Overlay** in the extensions menu and choose **English** under **Общие → Язык интерфейса**.
+
+- **Placement.** Open the extension settings and drag the large keys into place. Drag the history entry closest to the keys, then click an arrow to choose the history direction. Close settings to see live keystrokes.
+- **History.** Set the entry limit under **History**. The count below the field shows how many entries fit on screen.
+- **Presets.** Click **Save as preset**. To use it by default on new sites, open the preset list and click **☆** beside its name.
+
+</details>
+
+[zip]: https://github.com/DmitriyMih/keyboard-overlay/releases/download/v1.8.0/keyboard-overlay-1.8.0.zip
