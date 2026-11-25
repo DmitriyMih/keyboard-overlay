@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title data-en="Keyboard Overlay">Клавиши на экране</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <h1><span data-en="Keyboard Overlay">Клавиши на экране</span></h1>
+  <form id="settings" hidden>
+    <div class="sections" role="group" aria-label="Раздел настроек">
+      <button type="button" aria-controls="generalPane" aria-pressed="true"><span data-en="General">Общие</span></button>
+      <button type="button" aria-controls="keysPane" aria-pressed="false"><span data-en="Keys">Клавиши</span></button>
+      <button type="button" aria-controls="historyPane" aria-pressed="false"><span data-en="History">История</span></button>
+    </div>
+    <div id="generalPane" class="settings-pane">
+      <div class="settings-card">
+        <label><input type="checkbox" id="enabled"> <span data-en="Show keystrokes">Показывать клавиши</span></label>
+        <label for="editorTheme"><span data-en="Interface theme">Тема интерфейса</span></label>
+        <select id="editorTheme">
+          <option value="light" data-en="Light">Светлая</option>
+          <option value="dark" data-en="Dark">Тёмная</option>
+          <option value="system" data-en="System">Как на устройстве</option>
+        </select>
+        <label for="editorLanguage"><span data-en="Interface language">Язык интерфейса</span></label>
+        <select id="editorLanguage">
+          <option value="ru" lang="ru">Русский</option>
+          <option value="en" lang="en">English</option>
+        </select>
+      </div>
+      <div class="settings-card">
+        <div id="profiles">
+          <label id="profileLabel" for="profileList"><span data-en="Preset">Пресет</span></label>
+          <button type="button" id="profileList" aria-labelledby="profileLabel profileList" aria-expanded="false" aria-controls="profileOptions"></button>
+          <div id="profileOptions" role="group" aria-labelledby="profileLabel" hidden></div>
+          <div id="profileMenu" hidden>
+            <button type="button" id="renameProfile"><span data-en="Rename">Переименовать</span></button>
+            <button type="button" id="removeProfile"><span data-en="Delete">Удалить</span></button>
+          </div>
+          <button type="button" id="updateOriginal" hidden></button>
+          <button type="button" id="saveCopy" hidden><span data-en="Save as preset">Сохранить как пресет</span></button>
+          <output id="profileError" role="status"></output>
+        </div>
+      </div>
+    </div>
+    <div id="keysPane" class="settings-pane" hidden>
+      <div class="settings-card">
+        <div class="range-heading">
+          <label id="sizeLabel" for="size" data-en="Size">Размер</label>
+          <span><input type="number" data-range="size" aria-labelledby="sizeLabel sizeUnit"> <span id="sizeUnit">px</span></span>
+        </div>
+        <input type="range" id="size" min="32" max="128" step="1">
+        <div class="range-heading">
+          <label id="opacityLabel" for="opacity" data-en="Opacity">Непрозрачность</label>
+          <span><input type="number" data-range="opacity" aria-labelledby="opacityLabel opacityUnit"> <span id="opacityUnit">%</span></span>
+        </div>
+        <input type="range" id="opacity" min="10" max="100" step="1">
+        <div class="range-heading">
+          <label id="releaseDelayLabel" for="releaseDelay" data-en="Keep keys visible after release">Крупные клавиши после отпускания</label>
+          <span><input type="text" inputmode="decimal" data-range="releaseDelay" aria-labelledby="releaseDelayLabel releaseDelayUnit"> <span id="releaseDelayUnit" data-en="s">с</span></span>
+        </div>
+        <input type="range" id="releaseDelay" min="0" max="10" step="0.1">
+        <label><span data-en="Text and outline color">Цвет текста и контура</span> <input type="color" id="color"></label>
+      </div>
+      <div class="settings-card">
+        <label for="position"><span data-en="Position">Положение</span></label>
+        <select id="position">
+          <option value="custom" data-en="Custom">Пользовательское</option>
+          <option value="top-left" data-en="Top left">Сверху слева</option>
+          <option value="top-center" data-en="Top center">Сверху по центру</option>
+          <option value="top-right" data-en="Top right">Сверху справа</option>
+          <option value="bottom-left" data-en="Bottom left">Снизу слева</option>
+          <option value="bottom-center" data-en="Bottom center">Снизу по центру</option>
+          <option value="bottom-right" data-en="Bottom right">Снизу справа</option>
+        </select>
+        <label for="growth"><span data-en="Key growth direction">Куда добавлять клавиши</span></label>
+        <select id="growth"></select>
+      </div>
+      <p id="intro"><span data-en="Drag the keys to position them. Drag the newest history entry around the keys, then choose an arrow to set the history direction.">Перетащите карточки, чтобы выбрать место. Потяните свежую запись вокруг карточек, затем выберите стрелкой направление истории.</span></p>
+    </div>
+    <div id="historyPane" class="settings-pane" hidden>
+      <div class="settings-card">
+        <label><input type="checkbox" id="history"> <span data-en="Show history">Показывать историю</span></label>
+        <label><span data-en="History limit">Лимит записей</span> <input type="number" id="historyLimit" min="1" max="100" step="1"></label>
+        <output id="capacity"></output>
+      </div>
+      <div class="settings-card">
+        <div class="range-heading">
+          <label id="orbitRadiusLabel" for="orbitRadius" data-en="Distance from the keys">Радиус орбиты · от края клавиш</label>
+          <span><input type="number" data-range="orbitRadius" aria-labelledby="orbitRadiusLabel orbitRadiusUnit"> <span id="orbitRadiusUnit">px</span></span>
+        </div>
+        <input type="range" id="orbitRadius" min="4" max="160" step="1">
+        <label for="historyDirection"><span data-en="History direction">Направление истории</span></label>
+        <select id="historyDirection"></select>
+      </div>
+      <div class="settings-card">
+        <label><input type="checkbox" id="autoExpire"> <span data-en="Expire history entries">Удалять каждую запись по таймеру</span></label>
+        <div class="range-heading" id="secondsLabel" hidden>
+          <label id="historySecondsLabel" for="historySeconds" data-en="Seconds before expiry">Через сколько секунд после добавления</label>
+          <span><input type="text" inputmode="decimal" data-range="historySeconds" aria-labelledby="historySecondsLabel historySecondsUnit"> <span id="historySecondsUnit" data-en="s">с</span></span>
+        </div>
+        <input type="range" id="historySeconds" min="0" max="10" step="0.1" hidden>
+        <button type="button" id="clearHistory" disabled><span data-en="Clear history for this tab">Очистить историю вкладки</span></button>
+      </div>
+    </div>
+  </form>
+
+  <script src="settings.js"></script>
+  <script src="overlay.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
