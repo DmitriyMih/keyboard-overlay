@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Try Keyboard Overlay</title>
+<style>
+  * { box-sizing: border-box }
+  body { margin: 0; min-height: 100vh; background: radial-gradient(circle, #ccd8d9 1px, transparent 1px) center / 18px 18px, #fafcfa; color: #172a30; font: 16px/1.45 system-ui, sans-serif }
+  main { position: relative; z-index: 1; width: fit-content; max-width: 100%; padding: 14px 20px; background: #fafcfaed; border-radius: 0 0 16px 0 }
+  h1 { margin: 0; font-size: 22px; letter-spacing: -.04em }
+  p { margin: 4px 0 10px; max-width: 52ch }
+  button, select { font: inherit; border: 1px solid #aebfc2; border-radius: 7px; background: white; padding: 5px 9px; color: inherit; cursor: pointer }
+  button:focus-visible, select:focus-visible { outline: 2px solid #16798b }
+  [hidden] { display: none }
+</style>
+<main>
+<h1>Try Keyboard Overlay</h1>
+<p id="hint"></p>
+<select aria-label="Demonstration" id="scene">
+  <option value="placement">Placement</option><option value="orbit">History orbit</option>
+  <option value="alignment">History alignment</option><option value="growth">Key growth</option><option value="presets">Presets</option>
+</select>
+<button id="edit">Open settings</button>
+<button id="site" hidden>Try on site B</button>
+</main>
+<script src="../../settings.js"></script>
+<script src="sandbox.js"></script>
+<script src="../../presets.js"></script>
+<script src="../../overlay.js"></script>
+<script src="scenes.js"></script>
+</html>

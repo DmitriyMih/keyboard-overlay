@@ -1,0 +1,715 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>History orbit · Keyboard Overlay</title>
+<style>
+  * { box-sizing: border-box }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 18px; color: #172a30; background: #eef2f1; font: 16px/1.5 system-ui, sans-serif }
+  main { width: min(100%, 700px) }
+  h1 { font-size: clamp(24px, 5vw, 36px); letter-spacing: -.045em; margin: 0 }
+  p { margin: 4px 0 20px; color: #435960 }
+  .stage { position: relative; isolation: isolate; overflow: hidden; height: clamp(330px, 54vh, 430px); border: 1px solid #c2d0d2; border-radius: 16px; background: radial-gradient(circle, #ccd8d9 1px, transparent 1px) 50% 50% / 18px 18px, #fafcfa }
+  .cursor { position: absolute; z-index: 2147483647; width: 23px; height: 30px; pointer-events: none; filter: drop-shadow(0 1px 2px #173a4650) }
+  .cursor[hidden] { display: none }
+  footer { margin-top: 16px }
+  button { border: 0; border-radius: 8px; padding: 10px 18px; background: #195964; color: white; font: 600 15px system-ui; cursor: pointer }
+</style>
+<main>
+<h1>Position the history</h1>
+<p>Drag the first history entry around the keys. Release it when a guide appears.</p>
+<div class="stage">
+<svg class="cursor" hidden viewBox="0 0 23 30" aria-hidden="true"><path d="M2 2L20 16L12 17L16 25L12 27L8 19L3 24Z" fill="#164a55" stroke="white" stroke-width="2" stroke-linejoin="round"/></svg>
+</div>
+<footer><button id="play" type="button">Play demonstration</button></footer>
+</main>
+<script src="../../settings.js"></script>
+<script>
+(() => {
+  // Rendering, orbit geometry and pointer handlers below are taken from overlay.js.
+  const main = true, editor = true;
+  const form = document.createElement("form");
+  form.innerHTML = '<select name="growth"></select><select name="historyDirection"></select><output name="capacity"></output>';
+  const settings = { ...keyboardDefaults, position: "custom", size: 60, customY: .53,
+    orbitRadius: 38, historyLimit: 2, historyDock: { anchor: 12 } };
+  let preview = { ...settings };
+  let host, panel, cards, log, shadow, controls, guideX, guideY, drag, frame, geometry, markers;
+  const directions = { up: "↑", down: "↓", left: "←", right: "→", center: "↔" };
+  const titles = { up: "Вверх", down: "Вниз", left: "Влево", right: "Вправо", center: "В обе стороны" };
+  let language = "en";
+  function tr(ru, en) { return language === "en" ? en : ru; }
+  function directionTitle(dir) {
+    return tr(titles[dir], dir === "center" ? "Both directions" : dir[0].toUpperCase() + dir.slice(1));
+  }
+  const sampleHistory = ["Shift + S", "Enter", "Tab", "Ctrl + C", "Esc", "↓", "Ctrl + V", "Space", "↑"];
+
+  const symbols = {
+    Shift: "⇧", Control: "⌃", Alt: "⌥", Meta: "⊞", Enter: "↵",
+    Backspace: "⌫", Tab: "⇥", " ": "␣"
+  };
+  const names = {
+    Control: "Ctrl", Meta: "Win", Escape: "Esc", " ": "Space",
+    ArrowLeft: "←", ArrowRight: "→", ArrowUp: "↑", ArrowDown: "↓"
+  };
+  if (/Mac/.test(navigator.platform)) {
+    names.Meta = "Cmd";
+    symbols.Meta = "⌘";
+  }
+  function label(key) {
+    return Object.hasOwn(names, key) ? names[key] : key.length === 1 ? key.toUpperCase() : key;
+  }
+  function mount() {
+    host = document.createElement("div");
+    host.style.setProperty("all", "initial", "important");
+    for (const [property, value] of Object.entries({
+      position: "absolute", inset: "0", "z-index": "2147483647", "pointer-events": "none"
+    })) host.style.setProperty(property, value, "important");
+    host.id = "orbit-overlay";
+    document.getElementById(host.id)?.remove();
+    host.setAttribute("aria-hidden", "true");
+    shadow = host.attachShadow({ mode: "closed" });
+    const style = new CSSStyleSheet();
+    style.replaceSync(`
+      section { position: absolute; inset: 0; overflow: hidden;
+        gap: 12px; font: 500 var(--size)/1.1 Arial, sans-serif; user-select: none; direction: ltr; }
+      .row { position: absolute; display: flex; width: max-content; max-width: 100%; flex-wrap: wrap; touch-action: none; align-items: center; gap: .14em; }
+      .card { box-sizing: border-box; min-width: 1em; height: 1em; padding: 0 .12em;
+        display: inline-flex; flex-direction: column; align-items: center; justify-content: center;
+        background: white; border: max(1px, .024em) solid currentColor; border-radius: .23em;
+        box-shadow: 0 .09em currentColor; }
+      .letter { font-size: .46em; }
+      .word { font-size: .28em; }
+      .icon { font-size: .32em; margin-bottom: .08em; }
+      .history { font-size: max(12px, .23em); }
+      .controls button { position: absolute; pointer-events: auto; touch-action: manipulation;
+        color: #181818; background: white; border: 1px solid #aaa; border-radius: 8px;
+        height: 24px; min-width: 24px; padding: 0 4px; font: 600 14px system-ui; }
+      .controls button[aria-pressed="true"] { color: white; background: #191b1c; }
+      .controls button[data-align] { display: flex; flex-direction: column; justify-content: center; gap: 2px;
+        color: black; background: white; border-color: black; padding: 0 5px; }
+      .controls button[data-align="left"] { align-items: flex-start; }
+      .controls button[data-align="center"] { align-items: center; }
+      .controls button[data-align="right"] { align-items: flex-end; }
+      .controls button[data-align] i { width: 13px; height: 2px; background: currentColor; }
+      .controls button[data-align] i:nth-child(2) { width: 7px; }
+      .guide { position: absolute; background: #0085a6; opacity: .75; }
+      .vertical { width: 1px; inset-block: 0; }
+      .horizontal { height: 1px; inset-inline: 0; }
+      [hidden] { display: none !important; }
+      .history span { position: absolute; width: max-content; white-space: nowrap; background: white; border: 1px solid currentColor; border-radius: 5px; padding: 3px 6px; }
+      .history.editing span:first-child { pointer-events: auto; touch-action: none; cursor: grab; }
+      .history span { overflow: hidden; text-overflow: ellipsis; box-sizing: border-box; max-width: calc(100% - 24px); }
+      .card { max-width: 100%; overflow: hidden; }
+      .row:empty, .history:empty { display: none; }
+    `);
+    shadow.adoptedStyleSheets = [style];
+    panel = document.createElement("section");
+    cards = document.createElement("div");
+    cards.className = "row";
+    log = document.createElement("div");
+    log.className = "history";
+    log.addEventListener("pointerdown", beginDrag);
+    log.addEventListener("pointermove", moveDrag);
+    log.addEventListener("pointerup", finishDrag);
+    log.addEventListener("pointercancel", cancelPlacement);
+    controls = document.createElement("div");
+    controls.className = "controls";
+    for (const dir of ["left", "up", "right", "down"]) {
+      const button = document.createElement("button");
+      button.textContent = directions[dir];
+      button.onclick = () => saveOptions({ history: true, historyDirection: dir });
+      controls.append(button);
+    }
+    const alignHistory = document.createElement("button");
+    alignHistory.onclick = () => {
+      const { alignments, alignment } = geometry;
+      const next = alignments.find(value => value > alignment) ?? alignments[0];
+      saveOptions({ historyAlignment: next });
+    };
+    controls.append(alignHistory);
+    const grow = document.createElement("button");
+    for (const button of [alignHistory, grow]) {
+      for (let i = 0; i < 3; i++) button.append(document.createElement("i"));
+    }
+    grow.onclick = () => {
+      const { growth, modes } = geometry;
+      saveOptions({ growth: modes[(modes.indexOf(growth) + 1) % modes.length] });
+    };
+    controls.append(grow);
+    guideX = document.createElement("i");
+    guideY = document.createElement("i");
+    guideX.className = "guide vertical";
+    guideY.className = "guide horizontal";
+    cards.addEventListener("pointerdown", beginDrag);
+    cards.addEventListener("pointermove", moveDrag);
+    cards.addEventListener("pointerup", finishDrag);
+    cards.addEventListener("pointercancel", cancelPlacement);
+    markers = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    markers.style.cssText = "position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible";
+    const path = document.createElementNS(markers.namespaceURI, "path");
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", "#56899a");
+    path.setAttribute("stroke-dasharray", "3 4");
+    markers.append(path);
+    for (let i = 0; i < 17; i++) markers.append(document.createElementNS(markers.namespaceURI, "circle"));
+    panel.append(markers);
+    panel.append(guideX, guideY, cards, log, controls);
+    shadow.append(panel);
+  }
+  function render() {
+    if (!main) return;
+    const view = preview || settings;
+
+    if (!document.documentElement) return;
+    if (!host) mount();
+    const parent = document.querySelector(".stage");
+    if (host.parentNode !== parent) parent.append(host);
+    panel.style.visibility = editor || view.enabled ? "visible" : "hidden";
+
+    controls.hidden = !editor;
+    log.classList.toggle("editing", !!editor);
+    cards.style.pointerEvents = editor ? "auto" : "none";
+    cards.style.cursor = editor ? (drag ? "grabbing" : "grab") : "";
+    panel.style.setProperty("--size", view.size + "px");
+    panel.style.color = view.color;
+    cards.style.opacity = log.style.opacity = view.opacity / 100;
+    cards.replaceChildren();
+    const visible = [{ key: "Shift" }, { key: "S" }];
+    for (const { key } of visible) {
+      const card = document.createElement("div");
+      card.className = "card";
+      if (Object.hasOwn(symbols, key)) {
+        const icon = document.createElement("span");
+        icon.className = "icon";
+        icon.textContent = symbols[key];
+        card.append(icon);
+      }
+      const name = document.createElement("span");
+      name.textContent = label(key);
+      name.className = name.textContent.length === 1 ? "letter" : "word";
+      card.append(name);
+      cards.append(card);
+    }
+    const entries = Array.from({ length: view.history ? view.historyLimit : 0 }, (_, i) => sampleHistory[i % sampleHistory.length]);
+    log.replaceChildren(...entries.map(chord => {
+      const entry = document.createElement("span");
+      entry.textContent = chord;
+      return entry;
+    }));
+    positionOverlay(view);
+  }
+
+  function clamp(value, max) {
+    return Math.max(0, Math.min(value, max));
+  }
+
+  function positionOverlay(view) {
+    const width = panel.clientWidth, height = panel.clientHeight;
+    const [side, align] = view.position.split("-");
+    const custom = view.position === "custom";
+    const half = view.size / 2;
+    const minX = Math.min(width / 2, 12 + half), maxX = width - minX;
+    const minY = Math.min(height / 2, 16 + half), maxY = Math.max(minY, height - 20 - half);
+    let cx = custom ? Math.max(minX, Math.min(maxX, view.customX * width))
+      : align === "center" ? width / 2 : align === "right" ? maxX : minX;
+    const cy = custom ? Math.max(minY, Math.min(maxY, view.customY * height))
+      : side === "top" ? minY : maxY;
+    const roomLeft = cx - minX, roomRight = maxX - cx;
+    const step = view.size * 1.14;
+    let modes = [];
+    if (roomLeft + .01 >= step) modes.push("left");
+    if (roomLeft + .01 >= step / 2 && roomRight + .01 >= step / 2) modes.push("center");
+    if (roomRight + .01 >= step) modes.push("right");
+    if (!modes.length) modes = ["center"];
+    let growth = modes.includes(view.growth) ? view.growth : modes[0];
+    if (width >= 24 + view.size + step && (cy <= minY + 1 || cy >= maxY - 1)) {
+      const rowLeft = cx - half - (growth === "left" ? step : growth === "center" ? step / 2 : 0);
+      const rowRight = rowLeft + view.size + step;
+      if (rowLeft <= 13 || rowRight >= width - 13) {
+        growth = rowLeft <= 13 ? "right" : "left";
+        cx = growth === "right" ? minX : maxX;
+        modes = [growth];
+      }
+    }
+    const leftEdge = cx - half, rightEdge = cx + half;
+    const capacity = growth === "right" ? width - 12 - leftEdge : growth === "left" ? rightEdge - 12
+      : 2 * Math.min(cx - 12, width - 12 - cx);
+    const lineWidth = Math.max(1, capacity);
+    const lineLeft = w => growth === "left" ? rightEdge - w : growth === "right" ? leftEdge : cx - w / 2;
+    // A fixed two-key footprint keeps the orbit independent of the live chord.
+    const refWidth = Math.min(lineWidth, view.size * 2.14);
+    const bind = { x: lineLeft(refWidth), y: cy - half, w: refWidth, h: view.size };
+    bind.h += Math.ceil(view.size * .09);
+    const nodes = Array.from(log.children);
+    const sizes = nodes.map(node => {
+      node.hidden = false;
+      return { w: node.offsetWidth, h: node.offsetHeight };
+    });
+    const typical = { w: Math.max(45, view.size * .9), h: Math.max(12, view.size * .23) + 9 };
+    const first = sizes[0] || typical;
+    const sides = ["up", "right", "down", "left"];
+    const legacy = view.historyAngle == null ? sides.indexOf(view.historyDirection) :
+      (Math.round(view.historyAngle / 90) + 5) % 4;
+    const requested = view.historyDock ?? { side: legacy, t: .5 };
+    // Choose a side using fixed geometry; live entry widths only determine how many fit.
+    const basis = editor ? first : typical;
+    const dock = visibleDock(bind, basis, requested, view.orbitRadius, width, height);
+    const orbit = dockBox(bind, first, dock, view.orbitRadius);
+    const reference = dockBox(bind, typical, dock, view.orbitRadius);
+    geometry = { cx, cy, minX, maxX, minY, maxY, modes, growth, orbit, bind, dock };
+    const allowed = sides.filter(dir => historyRun(dir, reference, [typical, typical], bind, width, height).length === 2);
+    if (!allowed.length) allowed.push(view.historyDirection);
+    const dir = resolveHistoryDirection(view.position, view.historyDirection, allowed);
+    const automatic = historyAlignment(orbit, sizes, bind, width);
+    let alignment = automatic;
+    let plan = historyRun(dir, orbit, sizes, bind, width, height, alignment);
+    const corner = (requested.anchor != null && requested.anchor < 12) || requested.t === 0 || requested.t === 1;
+    const alignments = [];
+    if (!corner && (dir === "up" || dir === "down") && sizes.length) {
+      const layouts = [0, .5, 1].map(value => historyRun(dir, orbit, sizes, bind, width, height, value));
+      const best = Math.max(plan.length, ...layouts.map(layout => layout.length));
+      layouts.forEach((layout, i) => {
+        const value = i / 2;
+        if (!best || layout.length < Math.min(best, 2)) return;
+        alignments.push(value);
+        if (value === view.historyAlignment || (!alignments.includes(view.historyAlignment) && layout.length > plan.length)) {
+          alignment = value;
+          plan = layout;
+        }
+      });
+    }
+    geometry.alignments = alignments;
+    geometry.alignment = alignment;
+    const records = plan.slice(0, Math.min(view.historyLimit, nodes.length));
+    cards.style.maxWidth = lineWidth + "px";
+    const upward = cy > height / 2;
+    cards.style.flexWrap = upward ? "wrap-reverse" : "wrap";
+    cards.style.justifyContent = growth === "center" ? "center" : growth === "left" ? "flex-end" : "flex-start";
+    const w = cards.offsetWidth || view.size, h = cards.offsetHeight || view.size;
+    const x = lineLeft(w), y = upward ? cy + half - h : cy - half;
+    cards.style.left = x + "px";
+    cards.style.top = y + "px";
+
+    const occupied = [{ x, y, w, h: h + Math.ceil(view.size * .09) }];
+    nodes.forEach((node, i) => {
+      const box = records[i];
+      node.hidden = !box || overlaps(occupied[0], box);
+      if (node.hidden) return;
+      node.style.left = box.x + "px";
+      node.style.top = box.y + "px";
+      occupied.push(box);
+    });
+    let lineX = drag?.snapX == null ? null : cx;
+    let lineY = drag?.snapY == null ? null : cy;
+    const anchor = drag?.history ? drag.magnet : null;
+    if (anchor != null) {
+      if (anchor < 8) {
+        const side = Math.floor(anchor / 2), end = anchor % 2;
+        if (side % 2 === 0) lineX = bind.x + end * bind.w;
+        else lineY = bind.y + end * bind.h;
+      } else if (anchor < 12) {
+        lineX = orbit.x + ([8, 11].includes(anchor) ? orbit.w : 0);
+        lineY = orbit.y + (anchor < 10 ? orbit.h : 0);
+      } else if (anchor % 2 === 0) lineX = bind.x + bind.w / 2;
+      else lineY = bind.y + bind.h / 2;
+    }
+    guideX.hidden = lineX == null;
+    guideY.hidden = lineY == null;
+    if (lineX != null) guideX.style.left = lineX + "px";
+    if (lineY != null) guideY.style.top = lineY + "px";
+    drawGuides(view, bind, first, dock, width, height);
+    if (!editor) return;
+    const grow = controls.lastElementChild;
+    grow.hidden = false;
+    grow.title = tr("Направление роста клавиш", "Key growth direction") + " · " + directionTitle(growth);
+    grow.setAttribute("aria-label", grow.title);
+    grow.dataset.align = growth;
+    grow.disabled = modes.length < 2;
+    grow.style.maxWidth = bind.w + "px";
+    grow.style.fontSize = bind.w < 85 ? "11px" : "14px";
+    grow.style.left = (x + (w - grow.offsetWidth) / 2) + "px";
+    grow.style.top = (y + occupied[0].h - grow.offsetHeight) + "px";
+    occupied.push({ x: grow.offsetLeft, y: grow.offsetTop, w: grow.offsetWidth, h: grow.offsetHeight });
+    const placeControl = (button, origin, preferred) => {
+      const bw = button.offsetWidth, bh = button.offsetHeight;
+      const spots = [
+        [origin.x - bw - 5, origin.y + (origin.h - bh) / 2],
+        [origin.x + (origin.w - bw) / 2, origin.y - bh - 5],
+        [origin.x + origin.w + 5, origin.y + (origin.h - bh) / 2],
+        [origin.x + (origin.w - bw) / 2, origin.y + origin.h + 5]
+      ];
+      const [px, py] = spots[preferred];
+      // Search a small grid around the requested side, nearest available cell first.
+      let chosen, distance = Infinity;
+      for (let a = -4; a <= 4; a++) {
+        for (let b = -4; b <= 4; b++) {
+          const box = { x: clamp(px + a * 27, width - bw), y: clamp(py + b * 27, height - bh), w: bw, h: bh };
+          const cost = Math.hypot(box.x - px, box.y - py);
+          if (cost >= distance || occupied.some(item => overlaps(item, box, 3))) continue;
+          chosen = box;
+          distance = cost;
+        }
+      }
+      button.hidden = !chosen;
+      if (chosen) {
+        button.style.left = chosen.x + "px";
+        button.style.top = chosen.y + "px";
+        occupied.push(chosen);
+      }
+    };
+    const alignHistory = grow.previousElementSibling;
+    alignHistory.hidden = !view.history || alignments.length < 2;
+    if (!alignHistory.hidden) {
+      const edge = alignment < .25 ? "left" : alignment > .75 ? "right" : "center";
+      alignHistory.dataset.align = edge;
+      const name = edge === "center" ? tr("по центру", "center") :
+        edge === "left" ? tr("по левому краю", "left") : tr("по правому краю", "right");
+      alignHistory.title = tr("Выравнивание истории", "History alignment") + " · " + name;
+      alignHistory.setAttribute("aria-label", alignHistory.title);
+      const side = orbit.x + orbit.w / 2 > width / 2 ? 0 : 2;
+      placeControl(alignHistory, orbit, side);
+      if (alignHistory.hidden) {
+        alignHistory.hidden = false;
+        placeControl(alignHistory, orbit, 2 - side);
+      }
+    }
+    ["left", "up", "right", "down"].forEach((direction, i) => {
+      const button = controls.children[i];
+      button.title = tr("История ", "History ") + directionTitle(direction).toLowerCase();
+      button.setAttribute("aria-label", button.title);
+      button.hidden = !view.history || !allowed.includes(direction);
+      if (button.hidden) return;
+      button.setAttribute("aria-pressed", dir === direction);
+      placeControl(button, orbit, i);
+    });
+    setChoices("growth", modes, growth);
+    setChoices("historyDirection", allowed, dir);
+    const count = nodes.filter(node => !node.hidden).length;
+    form.elements.capacity.value = tr("На экране: ", "On screen: ") + count + tr(" из ", " of ") + view.historyLimit;
+  }
+
+  function overlaps(a, b, gap = 0) {
+    return a.x < b.x + b.w + gap && a.x + a.w + gap > b.x &&
+      a.y < b.y + b.h + gap && a.y + a.h + gap > b.y;
+  }
+
+  function inside(box, width, height) {
+    return box.x >= 11.9 && box.y >= 11.9 && box.x + box.w <= width - 11.9 && box.y + box.h <= height - 11.9;
+  }
+
+  function dockBox(bind, size, dock, gap) {
+    const anchor = dock.anchor;
+    let { side, t } = dock;
+    if (anchor >= 12 && anchor < 16) { side = anchor - 12; t = 0.5; }
+    else if (anchor != null && anchor < 8) {
+      side = Math.floor(anchor / 2);
+      t = anchor % 2;
+    }
+    if (side != null) {
+      const x = side === 1 ? bind.x + bind.w + gap : side === 3 ? bind.x - gap - size.w : bind.x + (bind.w - size.w) * t;
+      const y = side === 2 ? bind.y + bind.h + gap : side === 0 ? bind.y - gap - size.h : bind.y + (bind.h - size.h) * t;
+      return { ...size, x, y, side, t };
+    }
+    const hx = (bind.w + size.w) / 2, hy = (bind.h + size.h) / 2;
+    let dx, dy;
+    if (anchor >= 8) {
+      dx = (anchor === 8 || anchor === 11 ? -1 : 1) * (hx + gap / Math.SQRT2);
+      dy = (anchor < 10 ? -1 : 1) * (hy + gap / Math.SQRT2);
+    } else {
+      // Intersect the pointer ray with the rounded rectangle swept by the entry centre.
+      const ux = Math.cos(dock.angle), uy = Math.sin(dock.angle);
+      let low = 0, high = Math.hypot(hx, hy) + gap;
+      for (let i = 0; i < 18; i++) {
+        const mid = (low + high) / 2;
+        if (Math.hypot(Math.max(0, Math.abs(mid * ux) - hx), Math.max(0, Math.abs(mid * uy) - hy)) > gap) high = mid;
+        else low = mid;
+      }
+      dx = high * ux;
+      dy = high * uy;
+    }
+    return { ...size, x: bind.x + (bind.w - size.w) / 2 + dx, y: bind.y + (bind.h - size.h) / 2 + dy };
+  }
+
+  function visibleDock(bind, size, dock, gap, width, height) {
+    const box = dockBox(bind, size, dock, gap);
+    if (inside(box, width, height)) return dock;
+    const angle = Math.atan2(box.y + (size.h-bind.h)/2 - bind.y, box.x + (size.w-bind.w)/2 - bind.x);
+    for (let step = 1; step <= 180; step++) {
+      for (const sign of [-1, 1]) {
+        const candidate = { angle: angle + sign * step * Math.PI / 180 };
+        if (inside(dockBox(bind, size, candidate, gap), width, height)) return candidate;
+      }
+    }
+    return dock;
+  }
+
+  function drawGuides(view, bind, size, dock, width, height) {
+    const show = editor && view.history;
+    markers.style.display = show || (drag && !drag.history) ? "" : "none";
+    if (!show && !drag) return;
+    const path = markers.firstElementChild;
+    path.style.display = show ? "" : "none";
+    if (show) {
+      let trace = "", move = true;
+      for (let i = 0; i <= 96; i++) {
+        const box = dockBox(bind, size, { angle: i * Math.PI / 48 }, view.orbitRadius);
+        if (!inside(box, width, height)) { move = true; continue; }
+        trace += (move ? "M" : "L") + (box.x + box.w/2) + " " + (box.y + box.h/2);
+        move = false;
+      }
+      path.setAttribute("d", trace);
+    }
+    for (let anchor = 0; anchor < 16; anchor++) {
+      const box = dockBox(bind, size, { anchor }, view.orbitRadius);
+      const circle = markers.children[1 + anchor];
+      circle.style.display = show && inside(box,width,height) ? "" : "none";
+      const selected = anchor === (dock.anchor ?? (dock.t === 0 || dock.t === 1 ? dock.side * 2 + dock.t : -1));
+      const cornerX = [0,1,0,0,0,1,1,1,1,0,0,1,.5,.5,.5,.5][anchor];
+      const cornerY = [1,1,0,1,0,0,0,1,1,1,0,0,.5,.5,.5,.5][anchor];
+      circle.setAttribute("cx", box.x + cornerX * box.w);
+      circle.setAttribute("cy", box.y + cornerY * box.h);
+      circle.setAttribute("r",selected ? 5 : 3.5);
+      const color = anchor >= 12 ? "#4054bd" : anchor < 8 ? "#00758c" : "#8751aa";
+      circle.setAttribute("stroke",color); circle.setAttribute("fill",selected ? color : "white");
+    }
+    const cross = markers.lastElementChild;
+    cross.style.display = drag?.snapX != null && drag?.snapY != null ? "" : "none";
+    cross.setAttribute("cx", geometry.cx); cross.setAttribute("cy", geometry.cy);
+    cross.setAttribute("r", 5); cross.setAttribute("fill", "#00758c");
+  }
+
+  function historyAlignment(first, sizes, bind, width) {
+    const widest = Math.max(...sizes.map(size => size.w));
+    const middle = first.x + first.w / 2;
+    // Move the column as a unit; entries near either edge share that edge.
+    const alignment = middle > width - widest / 2 - 12 || bind.x + bind.w >= width - 13 ? 1 :
+      middle < widest / 2 + 12 || bind.x <= 13 ? 0 : .5;
+    return first.side === 1 ? 0 : first.side === 3 ? 1 : first.t ?? alignment;
+  }
+
+  function historyRun(dir, first, sizes, bind, width, height, align = historyAlignment(first, sizes, bind, width)) {
+    const vertical = dir === "up" || dir === "down";
+    const boxes = [];
+    for (const size of sizes) {
+      const previous = boxes.at(-1);
+      let x = first.x, y = first.y;
+      if (vertical) {
+        x = first.x + (first.w - size.w) * align;
+        if (previous) y = dir === "up" ? previous.y - size.h - 5 : previous.y + previous.h + 5;
+      } else if (previous) {
+        x = dir === "left" ? previous.x - size.w - 5 : previous.x + previous.w + 5;
+        y += (first.h - size.h) / 2;
+      }
+      const box = { ...size, x, y };
+      if (x < 11.9 || y < 11.9 || x + size.w > width - 11.9 || y + size.h > height - 11.9 || overlaps(box, bind)) break;
+      boxes.push(box);
+    }
+    return boxes;
+  }
+
+  function setChoices(id, values, selected) {
+    const select = form.elements[id];
+    const key = language + values.join();
+    if (select.dataset.choices !== key) {
+      select.replaceChildren(...values.map(value => new Option(directions[value] + " " + directionTitle(value), value)));
+      select.dataset.choices = key;
+    }
+    select.value = selected;
+  }
+
+  function beginDrag(event) {
+    if (!editor || drag || event.button !== 0 || !event.isPrimary) return;
+    const history = event.currentTarget === log;
+    if (history && event.target !== log.firstElementChild) return;
+    event.preventDefault();
+    drag = { history, owner: event.currentTarget, id: event.pointerId, startX: event.clientX, startY: event.clientY,
+      cx: geometry.cx, cy: geometry.cy, previous: { ...preview }, moved: false };
+    if (history) {
+      drag.orbitX = geometry.orbit.x + geometry.orbit.w / 2;
+      drag.orbitY = geometry.orbit.y + geometry.orbit.h / 2;
+      drag.magnet = geometry.dock.anchor ?? (geometry.dock.t === 0 || geometry.dock.t === 1 ? geometry.dock.side * 2 + geometry.dock.t : null);
+    } else {
+      drag.growth = geometry.growth;
+      drag.rowWidth = cards.getBoundingClientRect().width;
+    }
+    if (event.isTrusted) drag.owner.setPointerCapture(event.pointerId);
+  }
+
+  function snap(value, targets, previous) {
+    if (previous != null && Math.abs(value - previous) < 21) return previous;
+    return targets.find(point => Math.abs(value - point) < 11);
+  }
+
+  function moveDrag(event) {
+    if (drag?.id !== event.pointerId) return;
+    const dx = event.clientX - drag.startX, dy = event.clientY - drag.startY;
+    if (!drag.moved && Math.hypot(dx, dy) < 3) return;
+    drag.moved = true;
+    if (drag.history) {
+      const { bind, orbit } = geometry;
+      const px = drag.orbitX + dx, py = drag.orbitY + dy;
+      const angle = Math.atan2(py - bind.y - bind.h/2, px - bind.x - bind.w/2);
+      const gap = preview.orbitRadius, width = panel.clientWidth, height = panel.clientHeight;
+      const free = visibleDock(bind, orbit, { angle }, gap, width, height);
+      const point = dockBox(bind, orbit, free, gap);
+      let nearest = null, nearestDistance = Infinity;
+      for (let anchor = 0; anchor < 16; anchor++) {
+        const box = dockBox(bind, orbit, { anchor }, gap);
+        if (!inside(box,width,height)) continue;
+        const distance = Math.hypot(box.x - point.x, box.y - point.y);
+        if (anchor === drag.magnet && distance <= 14) { nearest = anchor; break; }
+        if (distance <= 8 && distance < nearestDistance) { nearest = anchor; nearestDistance = distance; }
+      }
+      drag.animateSnap ||= nearest != null && nearest !== drag.magnet;
+      drag.magnet = nearest;
+      preview.historyDock = nearest == null ? free : { anchor: nearest };
+      if (!frame) frame = requestAnimationFrame(() => {
+        frame = 0;
+        if (!drag?.history) return;
+        const first = log.firstElementChild;
+        const before = first?.getBoundingClientRect();
+        positionOverlay(preview);
+        if (drag.animateSnap && before && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+          log.getAnimations().forEach(animation => animation.cancel());
+          const after = first.getBoundingClientRect();
+          log.animate([{ transform: "translate(" + (before.x - after.x) + "px," + (before.y - after.y) + "px)" },
+            { transform: "none" }], { duration: 115, easing: "ease-out" });
+        }
+        drag.animateSnap = false;
+      });
+      return;
+    }
+    const x = drag.cx + dx, y = drag.cy + dy;
+    const width = panel.clientWidth, height = panel.clientHeight;
+    const room = Math.min(geometry.maxX - geometry.minX, Math.max(preview.size * 1.14, drag.rowWidth - preview.size));
+    const leftRoom = drag.growth === "left" ? room : drag.growth === "center" ? room / 2 : 0;
+    const minX = geometry.minX + leftRoom, maxX = geometry.maxX - (room - leftRoom);
+    drag.snapX = snap(x, [minX, Math.max(minX, Math.min(maxX, width / 2)), maxX], drag.snapX);
+    drag.snapY = snap(y, [geometry.minY, height / 2, geometry.maxY], drag.snapY);
+    preview.position = "custom";
+    preview.growth = drag.growth;
+    preview.customX = Math.max(minX, Math.min(maxX, drag.snapX ?? x)) / width;
+    preview.customY = clamp((drag.snapY ?? y) / height, 1);
+    if (!frame) frame = requestAnimationFrame(() => {
+      frame = 0;
+      if (!drag) return;
+      positionOverlay(preview);
+    });
+  }
+
+  function finishDrag(event) {
+    if (drag?.id !== event.pointerId) return;
+    moveDrag(event);
+    if (drag.history) {
+      const changed = drag.moved;
+      releaseDrag();
+      if (changed) saveOptions({ historyDock: preview.historyDock });
+      return;
+    }
+    const moved = drag.moved;
+    if (moved) {
+      positionOverlay(preview);
+      preview.customX = geometry.cx / panel.clientWidth;
+      preview.growth = geometry.growth;
+    }
+    releaseDrag();
+    if (moved) {
+      saveOptions({ position: "custom", growth: preview.growth, customX: preview.customX, customY: preview.customY });
+    } else render();
+  }
+
+  function releaseDrag() {
+    if (drag && drag.owner.hasPointerCapture(drag.id)) drag.owner.releasePointerCapture(drag.id);
+    cancelAnimationFrame(frame);
+    frame = 0;
+    drag = null;
+  }
+
+  function cancelPlacement() {
+    if (!drag) return;
+    preview = drag.previous;
+    releaseDrag();
+    render();
+  }
+
+  function saveOptions(changes) {
+    Object.assign(preview, changes);
+    render();
+  }
+
+  const cursor = document.querySelector(".cursor");
+  const play = document.querySelector("#play");
+  let playback = 0;
+  let holding = false;
+
+  function pointer(type, point) {
+    const rect = panel.getBoundingClientRect();
+    const target = type === "pointerdown" ? log.firstElementChild : log;
+    target.dispatchEvent(new PointerEvent(type, { bubbles: true, isPrimary: true,
+      pointerId: 99, clientX: rect.x + point.x, clientY: rect.y + point.y }));
+  }
+
+  function startScene() {
+    stopScene();
+    preview = { ...settings };
+    render();
+    panel.parentNode.host.after(cursor);
+    cursor.removeAttribute("hidden");
+  }
+
+  function stopScene() {
+    cancelAnimationFrame(playback);
+    playback = 0;
+    if (holding) cancelPlacement();
+    holding = false;
+    cursor.setAttribute("hidden", "");
+    play.textContent = "Play demonstration";
+  }
+
+  function progress(time, start, end) {
+    const t = Math.max(0, Math.min(1, (time - start) / (end - start)));
+    return t * t * (3 - 2 * t);
+  }
+
+  function showFrame(time) {
+    const { bind, orbit } = geometry;
+    const angle = -Math.PI / 2 + Math.PI / 2 * progress(time, 1000, 3400);
+    const box = dockBox(bind, orbit, { angle }, preview.orbitRadius);
+    const approach = 1 - progress(time, 80, 680);
+    const leave = progress(time, 4150, 4750);
+    const point = { x: box.x + box.w / 2 + approach * 52 + leave * 35,
+      y: box.y + box.h / 2 - approach * 32 + leave * 30 };
+    cursor.style.left = (point.x - 2) + "px";
+    cursor.style.top = (point.y - 2) + "px";
+    if (time >= 760 && time < 3900) {
+      pointer(holding ? "pointermove" : "pointerdown", point);
+      holding = true;
+    } else if (holding) {
+      pointer("pointerup", point);
+      holding = false;
+    }
+  }
+
+  play.onclick = () => {
+    if (playback) { stopScene(); return; }
+    startScene();
+    play.textContent = "Stop demonstration";
+    const start = performance.now();
+    function tick(now) {
+      showFrame(now - start);
+      if (now - start < 5100) playback = requestAnimationFrame(tick);
+      else stopScene();
+    }
+    playback = requestAnimationFrame(tick);
+  };
+  document.querySelector(".stage").addEventListener("pointerdown", event => {
+    if (event.isTrusted && playback) stopScene();
+  }, true);
+  window.addEventListener("resize", () => { stopScene(); render(); });
+  window.addEventListener("keydown", event => { if (event.key === "Escape") { stopScene(); cancelPlacement(); } });
+  // Frame stepping for the local GIF capture.
+  window.orbitDemo = { startScene, showFrame };
+  render();
+})();
+</script>
+</html>
